@@ -3,3 +3,4 @@ Makefile
 moc_*
 final
 db
+*.swp

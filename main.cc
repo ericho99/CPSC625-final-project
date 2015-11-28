@@ -79,13 +79,16 @@ void FrontDialog::readPendingDatagrams()
   }
 }
 
-void FrontDialog::gotReturnPressed()
+void FrontDialog::putRequest()
 {
-	// Initially, just echo the string locally.
+  // invalid put request with empty key
+  if (keyfield->text().isEmpty()) {
+    return;
+  }
+
 	// Insert some networking code here...
-	QString line = textline->toPlainText();
-  qDebug() << "Adding file to port: " << line;
-  textview->append(line);
+	QString line = keyfield->text();
+  qDebug() << "Adding file : " << line;
 
   // writes key
   std::fstream fs;
@@ -95,17 +98,18 @@ void FrontDialog::gotReturnPressed()
   
   // sending messages
   QVariantMap msg;
-  msg.insert(QString("File"), textline->toPlainText());
+  msg.insert(QString("File"), line);
 
   sock->sendDatagrams(msg); 
 
-  // Clear the textline to get ready for the next input message.
-  textline->clear();
+  // Clear the inputs to get ready for the next input message.
+  keyfield->clear();
+  valuefield->clear();
 }
 
 FrontDialog::FrontDialog()
 {
-	setWindowTitle("Peerster");
+	setWindowTitle("DB");
 
 	// Create a UDP network socket
 	sock = new NetSocket();
@@ -120,24 +124,21 @@ FrontDialog::FrontDialog()
   connect(sock, SIGNAL(readyRead()),
           this, SLOT(readPendingDatagrams()));
 
-  // key field
-	textview = new QTextEdit(this);
-	textview->setReadOnly(true);
+	keyfield = new QLineEdit(this);
 
-  // value field
-	textline = new QTextEdit(this);
-  textline->setFocus();
+	valuefield = new QTextEdit(this);
+  valuefield->setFocus();
 
   // submit button for putting key/value
   putbutton = new QPushButton("Put", this);
 
   connect(putbutton, SIGNAL(clicked()),
-          this, SLOT(gotReturnPressed()));
+          this, SLOT(putRequest()));
 
 	// Lay out the widgets to appear in the main window.
 	QVBoxLayout *layout = new QVBoxLayout();
-	layout->addWidget(textview);
-	layout->addWidget(textline);
+	layout->addWidget(keyfield);
+	layout->addWidget(valuefield);
   layout->addWidget(putbutton);
 	setLayout(layout);
 }

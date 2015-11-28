@@ -37,15 +37,15 @@ class FrontDialog : public QDialog
     NetSocket *sock;
 
   public slots:
-    void gotReturnPressed();
+    void putRequest();
     void readPendingDatagrams();
 
   signals:
     void keyPressEvent(QKeyEvent *e);
 
   private:
-    QTextEdit *textview;
-    QTextEdit *textline;
+    QLineEdit *keyfield;
+    QTextEdit *valuefield;
     QPushButton *putbutton;
 };
 
