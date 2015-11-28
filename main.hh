@@ -8,12 +8,13 @@
 #include <QLineEdit>
 #include <QKeyEvent>
 #include <QUdpSocket>
+#include <QMap>
 #include <QVariantMap>
 #include <QPushButton>
 
 class NetSocket : public QUdpSocket
-  {
-    Q_OBJECT
+{
+  Q_OBJECT
 
   public:
     NetSocket();
@@ -28,17 +29,29 @@ class NetSocket : public QUdpSocket
     int myPortMin, myPortMax;
 };
 
+class VersionTracker
+{
+  public:
+    VersionTracker();
+    int findMostRecentVersion(QString key); 
+    void eliminateOldVersions(QString key);
+
+    QMap<QString, QPair<QString, int> > *versions;
+};
+
 class FrontDialog : public QDialog
 {
 	Q_OBJECT
 
   public:
     FrontDialog();
+    void put(QString dir_name, QString key, QString value);
     NetSocket *sock;
+    VersionTracker *vt;
 
   public slots:
     void putRequest();
-    void readPendingDatagrams();
+    void readPendingMessages();
 
   signals:
     void keyPressEvent(QKeyEvent *e);

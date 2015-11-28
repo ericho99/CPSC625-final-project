@@ -54,7 +54,22 @@ void NetSocket::sendDatagrams(QVariantMap msg)
 	}
 }
 
-void FrontDialog::readPendingDatagrams()
+VersionTracker::VersionTracker()
+{
+  versions = new QMap<QString, QPair<QString, int> >();
+}
+
+int VersionTracker::findMostRecentVersion(QString key)
+{
+  return 1;
+}
+
+void VersionTracker::eliminateOldVersions(QString key)
+{
+  return;
+}
+
+void FrontDialog::readPendingMessages()
 {
   while (sock->hasPendingDatagrams()) {
     QByteArray *g = new QByteArray();
@@ -69,14 +84,25 @@ void FrontDialog::readPendingDatagrams()
     //for (QVariantMap::const_iterator i = msg.begin(); i != msg.end(); ++i) {
     //  qDebug() << i.key() << ": " << i.value();
     //}
-    if (msg.contains(QString("File"))) {
+    if (msg.contains(QString("Key"))) {
       // writes key
       std::fstream fs;
-      QString filename = sock->dir_name + "/" + msg[QString("File")].toString();
+      QString filename = sock->dir_name + "/" + msg[QString("Key")].toString();
       fs.open(filename.toStdString().c_str(), std::fstream::out);
+      if (msg.contains(QString("Value"))) {
+        fs << msg[QString("Value")].toString().toStdString();
+      }
       fs.close();
     }
   }
+}
+
+void FrontDialog::put(QString dir_name, QString key, QString value)
+{
+  std::fstream fs;
+  fs.open((dir_name + "/" + key).toStdString().c_str(), std::fstream::out);
+  fs << value.toStdString();
+  fs.close();
 }
 
 void FrontDialog::putRequest()
@@ -86,19 +112,20 @@ void FrontDialog::putRequest()
     return;
   }
 
-	// Insert some networking code here...
-	QString line = keyfield->text();
-  qDebug() << "Adding file : " << line;
+  // grabs input key/value
+	QString key = keyfield->text();
+  QString value = valuefield->toPlainText();
+  qDebug() << "Adding file : " << key;
 
   // writes key
-  std::fstream fs;
-  QString filename = sock->dir_name + "/" + line;
-  fs.open(filename.toStdString().c_str(), std::fstream::out);
-  fs.close();
-  
+  int version = vt->findMostRecentVersion(key) + 1;
+  vt->versions->insert(key, qMakePair(value, version));
+  put(sock->dir_name, key, value);
+ 
   // sending messages
   QVariantMap msg;
-  msg.insert(QString("File"), line);
+  msg.insert(QString("Key"), key);
+  msg.insert(QString("Value"), value);
 
   sock->sendDatagrams(msg); 
 
@@ -110,6 +137,7 @@ void FrontDialog::putRequest()
 FrontDialog::FrontDialog()
 {
 	setWindowTitle("DB");
+  vt = new VersionTracker();
 
 	// Create a UDP network socket
 	sock = new NetSocket();
@@ -122,7 +150,7 @@ FrontDialog::FrontDialog()
 
   // starts listening for messages
   connect(sock, SIGNAL(readyRead()),
-          this, SLOT(readPendingDatagrams()));
+          this, SLOT(readPendingMessages()));
 
 	keyfield = new QLineEdit(this);
 
