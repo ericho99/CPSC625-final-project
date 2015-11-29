@@ -49,18 +49,17 @@ void NetSocket::findNeighbors()
   }
 }
 
-void NetSocket::sendRumors(QVariantMap msg)
+// sends the specified rumor to a random neighboring node
+void NetSocket::sendRumor(QVariantMap msg)
 {
   QByteArray *serialized = new QByteArray();
   QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
   out << msg;
 
-  // send message to all neighbors
-  for (int i = 0; i < neighbors->size(); ++i) {
-    QPair<QHostAddress, int> neighbor = neighbors->at(i); 
-    if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
-      qDebug() << "failed to send";
-    } 
+  srand(time(0));
+  QPair<QHostAddress, int> neighbor = neighbors->at(rand() % neighbors->size()); 
+  if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
+    qDebug() << "failed to send";
   }
 }
 
@@ -116,9 +115,6 @@ void FrontDialog::readPendingMessages()
     QVariantMap msg;
     in >> msg;
 
-    //for (QVariantMap::const_iterator i = msg.begin(); i != msg.end(); ++i) {
-    //  qDebug() << i.key() << ": " << i.value();
-    //}
     if (msg.contains(QString("Key")) and msg.contains(QString("Value")) and msg.contains(QString("Version"))) {
       writeKey(msg[QString("Key")].toString(), msg[QString("Value")].toString(), msg[QString("Version")].toInt());
     }
@@ -149,7 +145,7 @@ void FrontDialog::putRequest()
   msg.insert(QString("Version"), version);
   msg.insert(QString("Source"), sock->address.toString());
 
-  sock->sendRumors(msg); 
+  emit startRumor(msg);
 
   // Clear the inputs to get ready for the next input message.
   keyfield->clear();
@@ -176,6 +172,8 @@ FrontDialog::FrontDialog()
   // starts listening for messages
   connect(sock, SIGNAL(readyRead()),
           this, SLOT(readPendingMessages()));
+  connect(this, SIGNAL(startRumor(QVariantMap)),
+          sock, SLOT(sendRumor(QVariantMap)));
 
   // adding front end fields
 	keyfield = new QLineEdit(this);

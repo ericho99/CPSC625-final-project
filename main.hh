@@ -18,13 +18,15 @@ class NetSocket : public QUdpSocket
 
   public:
     NetSocket();
-    void sendRumors(QVariantMap msg);
     bool bind(); // Bind this socket to a Peerster-specific default port.
     void findNeighbors();
 
     int boundPort;
     QHostAddress address;
     QString dir_name;
+
+  public slots:
+    void sendRumor(QVariantMap msg);
 
   private:
     int myPortMin, myPortMax;
@@ -58,7 +60,7 @@ class FrontDialog : public QDialog
     void readPendingMessages();
 
   signals:
-    void keyPressEvent(QKeyEvent *e);
+    void startRumor(QVariantMap msg);
 
   private:
     QLineEdit *keyfield;
