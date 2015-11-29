@@ -28,6 +28,7 @@ bool NetSocket::bind()
 	for (int p = myPortMin; p <= myPortMax; p++) {
 		if (QUdpSocket::bind(p)) {
       boundPort = p;
+      address = QHostAddress(QHostAddress::LocalHost);
 			qDebug() << "bound to UDP port " << p;
 			return true;
 		}
@@ -43,7 +44,7 @@ void NetSocket::findNeighbors()
   neighbors = new QVector<QPair<QHostAddress, int> >();
   for (int p = myPortMin; p <= myPortMax; p++) {
     if (boundPort != p) {
-      neighbors->append(qMakePair(QHostAddress(QHostAddress::LocalHost), p));
+      neighbors->append(qMakePair(address, p));
     }
   }
 }
@@ -61,14 +62,6 @@ void NetSocket::sendRumors(QVariantMap msg)
       qDebug() << "failed to send";
     } 
   }
-	//for (int p = myPortMin; p <= myPortMax; p++) {
-	//	if (boundPort != p) {
-
-  //    if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), QHostAddress(QHostAddress::LocalHost), p) == -1) {
-  //      qDebug() << "failed to send";
-  //    } 
-	//	}
-	//}
 }
 
 VersionTracker::VersionTracker()
@@ -154,6 +147,7 @@ void FrontDialog::putRequest()
   msg.insert(QString("Key"), key);
   msg.insert(QString("Value"), value);
   msg.insert(QString("Version"), version);
+  msg.insert(QString("Source"), sock->address.toString());
 
   sock->sendRumors(msg); 
 

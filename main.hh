@@ -23,11 +23,12 @@ class NetSocket : public QUdpSocket
     void findNeighbors();
 
     int boundPort;
+    QHostAddress address;
     QString dir_name;
-    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
 
   private:
     int myPortMin, myPortMax;
+    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
 };
 
 class VersionTracker
