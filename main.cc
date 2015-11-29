@@ -59,44 +59,25 @@ VersionTracker::VersionTracker()
   versions = new QMap<QString, QPair<QString, int> >();
 }
 
+// returns the most recent version of the key in the QMap, -1 if non existent
 int VersionTracker::findMostRecentVersion(QString key)
 {
-  return 1;
-}
-
-void VersionTracker::eliminateOldVersions(QString key)
-{
-  return;
-}
-
-void FrontDialog::readPendingMessages()
-{
-  while (sock->hasPendingDatagrams()) {
-    QByteArray *g = new QByteArray();
-    int size = sock->pendingDatagramSize();
-    g->resize(size);
-    sock->readDatagram(g->data(), size);
-
-    QDataStream in(g, QIODevice::OpenMode(QIODevice::ReadOnly));
-    QVariantMap msg;
-    in >> msg;
-
-    //for (QVariantMap::const_iterator i = msg.begin(); i != msg.end(); ++i) {
-    //  qDebug() << i.key() << ": " << i.value();
-    //}
-    if (msg.contains(QString("Key"))) {
-      // writes key
-      std::fstream fs;
-      QString filename = sock->dir_name + "/" + msg[QString("Key")].toString();
-      fs.open(filename.toStdString().c_str(), std::fstream::out);
-      if (msg.contains(QString("Value"))) {
-        fs << msg[QString("Value")].toString().toStdString();
-      }
-      fs.close();
-    }
+  if (versions->contains(key)) {
+    return (*versions)[key].second;
+  } else {
+    return 0;
   }
 }
 
+// updates to a new version within the QMap
+void VersionTracker::updateVersion(QString key, int version)
+{
+  if (versions->contains(key)) {
+    versions->insert(key, qMakePair((*versions)[key].first, version));
+  }
+}
+
+// writes the key/value pair to local storage
 void FrontDialog::put(QString dir_name, QString key, QString value)
 {
   std::fstream fs;
@@ -105,6 +86,36 @@ void FrontDialog::put(QString dir_name, QString key, QString value)
   fs.close();
 }
 
+// updates versioning and writes key/value pair
+void FrontDialog::writeKey(QString key, QString value, int version)
+{
+  vt->versions->insert(key, qMakePair(value, version));
+  vt->updateVersion(key, version);
+  put(sock->dir_name, key, value);
+}
+
+void FrontDialog::readPendingMessages()
+{
+  while (sock->hasPendingDatagrams()) {
+    QByteArray *deserialized = new QByteArray();
+    int size = sock->pendingDatagramSize();
+    deserialized->resize(size);
+    sock->readDatagram(deserialized->data(), size);
+
+    QDataStream in(deserialized, QIODevice::OpenMode(QIODevice::ReadOnly));
+    QVariantMap msg;
+    in >> msg;
+
+    //for (QVariantMap::const_iterator i = msg.begin(); i != msg.end(); ++i) {
+    //  qDebug() << i.key() << ": " << i.value();
+    //}
+    if (msg.contains(QString("Key")) and msg.contains(QString("Value")) and msg.contains(QString("Version"))) {
+      writeKey(msg[QString("Key")].toString(), msg[QString("Value")].toString(), msg[QString("Version")].toInt());
+    }
+  }
+}
+
+// processes a put request
 void FrontDialog::putRequest()
 {
   // invalid put request with empty key
@@ -119,13 +130,13 @@ void FrontDialog::putRequest()
 
   // writes key
   int version = vt->findMostRecentVersion(key) + 1;
-  vt->versions->insert(key, qMakePair(value, version));
-  put(sock->dir_name, key, value);
- 
+  writeKey(key, value, version);
+  
   // sending messages
   QVariantMap msg;
   msg.insert(QString("Key"), key);
   msg.insert(QString("Value"), value);
+  msg.insert(QString("Version"), version);
 
   sock->sendDatagrams(msg); 
 
@@ -134,6 +145,7 @@ void FrontDialog::putRequest()
   valuefield->clear();
 }
 
+// instantiates the application
 FrontDialog::FrontDialog()
 {
 	setWindowTitle("DB");
@@ -152,13 +164,11 @@ FrontDialog::FrontDialog()
   connect(sock, SIGNAL(readyRead()),
           this, SLOT(readPendingMessages()));
 
+  // adding front end fields
 	keyfield = new QLineEdit(this);
-
+  keyfield->setFocus();
 	valuefield = new QTextEdit(this);
-  valuefield->setFocus();
-
-  // submit button for putting key/value
-  putbutton = new QPushButton("Put", this);
+  putbutton = new QPushButton("Put", this); // submit button
 
   connect(putbutton, SIGNAL(clicked()),
           this, SLOT(putRequest()));

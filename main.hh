@@ -34,7 +34,7 @@ class VersionTracker
   public:
     VersionTracker();
     int findMostRecentVersion(QString key); 
-    void eliminateOldVersions(QString key);
+    void updateVersion(QString key, int version);
 
     QMap<QString, QPair<QString, int> > *versions;
 };
@@ -46,6 +46,8 @@ class FrontDialog : public QDialog
   public:
     FrontDialog();
     void put(QString dir_name, QString key, QString value);
+    void writeKey(QString, QString, int);
+
     NetSocket *sock;
     VersionTracker *vt;
 
