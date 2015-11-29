@@ -18,12 +18,13 @@ class NetSocket : public QUdpSocket
 
   public:
     NetSocket();
+    void sendRumors(QVariantMap msg);
+    bool bind(); // Bind this socket to a Peerster-specific default port.
+    void findNeighbors();
+
     int boundPort;
     QString dir_name;
-    void sendDatagrams(QVariantMap msg);
-
-    // Bind this socket to a Peerster-specific default port.
-    bool bind();
+    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
 
   private:
     int myPortMin, myPortMax;
@@ -36,7 +37,7 @@ class VersionTracker
     int findMostRecentVersion(QString key); 
     void updateVersion(QString key, int version);
 
-    QMap<QString, QPair<QString, int> > *versions;
+    QMap<QString, QPair<QString, int> > *versions; // map of key to <value, version>
 };
 
 class FrontDialog : public QDialog

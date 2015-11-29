@@ -38,20 +38,37 @@ bool NetSocket::bind()
 	return false;
 }
 
-void NetSocket::sendDatagrams(QVariantMap msg)
+void NetSocket::findNeighbors()
 {
-  // send message to all other udp ports
-	for (int p = myPortMin; p <= myPortMax; p++) {
-		if (boundPort != p) {
-      QByteArray *serialized = new QByteArray();
-      QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
-      out << msg;
+  neighbors = new QVector<QPair<QHostAddress, int> >();
+  for (int p = myPortMin; p <= myPortMax; p++) {
+    if (boundPort != p) {
+      neighbors->append(qMakePair(QHostAddress(QHostAddress::LocalHost), p));
+    }
+  }
+}
 
-      if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), QHostAddress(QHostAddress::LocalHost), p) == -1) {
-        qDebug() << "failed to send";
-      } 
-		}
-	}
+void NetSocket::sendRumors(QVariantMap msg)
+{
+  QByteArray *serialized = new QByteArray();
+  QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
+  out << msg;
+
+  // send message to all neighbors
+  for (int i = 0; i < neighbors->size(); ++i) {
+    QPair<QHostAddress, int> neighbor = neighbors->at(i); 
+    if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
+      qDebug() << "failed to send";
+    } 
+  }
+	//for (int p = myPortMin; p <= myPortMax; p++) {
+	//	if (boundPort != p) {
+
+  //    if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), QHostAddress(QHostAddress::LocalHost), p) == -1) {
+  //      qDebug() << "failed to send";
+  //    } 
+	//	}
+	//}
 }
 
 VersionTracker::VersionTracker()
@@ -138,7 +155,7 @@ void FrontDialog::putRequest()
   msg.insert(QString("Value"), value);
   msg.insert(QString("Version"), version);
 
-  sock->sendDatagrams(msg); 
+  sock->sendRumors(msg); 
 
   // Clear the inputs to get ready for the next input message.
   keyfield->clear();
@@ -154,7 +171,9 @@ FrontDialog::FrontDialog()
 	// Create a UDP network socket
 	sock = new NetSocket();
 	if (!sock->bind())
-		exit(1);
+		exit(1); 
+
+  sock->findNeighbors();
 
   // directory to store key/values is just dir plus the port number, stored in directory db
   sock->dir_name = "db/dir" + QString::number(sock->boundPort);
