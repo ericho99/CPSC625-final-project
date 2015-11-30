@@ -11,6 +11,7 @@
 #include <QMap>
 #include <QVariantMap>
 #include <QPushButton>
+#include <QTimer>
 
 class NetSocket : public QUdpSocket
 {
@@ -20,8 +21,10 @@ class NetSocket : public QUdpSocket
     NetSocket();
     bool bind(); // Bind this socket to a Peerster-specific default port.
     void findNeighbors();
+    QVariantMap deserialize();
+    void sendAck(int ack, QVariantMap msg);
 
-    int boundPort;
+    int boundPort, kRumorProb; // const kRumorProb?
     QHostAddress address;
     QString dir_name;
 
@@ -33,11 +36,36 @@ class NetSocket : public QUdpSocket
     QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
 };
 
+class HotRumor : public QObject
+{
+  Q_OBJECT
+
+  public:
+    HotRumor(QVariantMap);
+    ~HotRumor();
+    QTimer *timer;
+
+    QString key;
+    int version;
+    QVariantMap ackmsg;
+
+  public slots:
+    void checkAcks();
+
+  signals:
+    void eliminateRumor(QString key);
+    void sendRumor(QVariantMap);
+
+  private:
+    int kTimeout, kRumorProb;
+    QVariantMap msg;
+};
+
 class VersionTracker
 {
   public:
     VersionTracker();
-    int findMostRecentVersion(QString key); 
+    int findVersion(QString key); 
     void updateVersion(QString key, int version);
 
     QMap<QString, QPair<QString, int> > *versions; // map of key to <value, version>
@@ -50,14 +78,19 @@ class FrontDialog : public QDialog
   public:
     FrontDialog();
     void put(QString dir_name, QString key, QString value);
-    void writeKey(QString, QString, int);
+    bool shouldUpdate(int, int);
+    int processRumor(QVariantMap);
+    void resendRumor(QVariantMap);
+    void attachAckMessage(QVariantMap);
 
     NetSocket *sock;
     VersionTracker *vt;
+    QVector<HotRumor *> *hotRumors;
 
   public slots:
     void putRequest();
     void readPendingMessages();
+    void eliminateRumorByKey(QString key);
 
   signals:
     void startRumor(QVariantMap msg);

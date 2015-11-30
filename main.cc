@@ -20,6 +20,7 @@ NetSocket::NetSocket()
 	// We use the range from 32768 to 49151 for this purpose.
 	myPortMin = 32768 + (getuid() % 4096)*4;
 	myPortMax = myPortMin + 3;
+  kRumorProb = 2; // 1/kRumorProb is probability rumors stop when encountering infected node
 }
 
 bool NetSocket::bind()
@@ -56,11 +57,54 @@ void NetSocket::sendRumor(QVariantMap msg)
   QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
   out << msg;
 
-  srand(time(0));
   QPair<QHostAddress, int> neighbor = neighbors->at(rand() % neighbors->size()); 
+  qDebug() << "Sending rumor to port " << neighbor.second;
   if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
     qDebug() << "failed to send";
+    sleep(1000);
+    sendRumor(msg);
   }
+}
+
+// sends acknowledgement of rumor
+void NetSocket::sendAck(int ack, QVariantMap msg)
+{
+  // create message
+  QVariantMap ackmsg;
+  ackmsg.insert(QString("Ack"), ack);
+  ackmsg.insert(QString("Key"), msg[QString("Key")].toString());
+  ackmsg.insert(QString("Version"), msg[QString("Version")].toInt());
+
+  // serialize
+  QByteArray *serialized = new QByteArray();
+  QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
+  out << ackmsg;
+
+  qDebug() << "Sending ack to port " << msg[QString("Port")].toInt();
+
+  // write msg
+  if (QUdpSocket::writeDatagram(
+      serialized->data(),
+      serialized->size(),
+      //QHostAddress(msg[QString("Host")].toString()),
+      QHostAddress(QHostAddress::LocalHost),
+      msg[QString("Port")].toInt()) == -1) {
+    qDebug() << "failed to send";
+  }
+}
+
+// deserialize a datagram into a QVariantMap msg
+QVariantMap NetSocket::deserialize()
+{
+  QByteArray *deserialized = new QByteArray();
+  int size = pendingDatagramSize();
+  deserialized->resize(size);
+  readDatagram(deserialized->data(), size);
+
+  QDataStream in(deserialized, QIODevice::OpenMode(QIODevice::ReadOnly));
+  QVariantMap msg;
+  in >> msg;
+  return msg;
 }
 
 VersionTracker::VersionTracker()
@@ -68,8 +112,8 @@ VersionTracker::VersionTracker()
   versions = new QMap<QString, QPair<QString, int> >();
 }
 
-// returns the most recent version of the key in the QMap, -1 if non existent
-int VersionTracker::findMostRecentVersion(QString key)
+// returns the most recent version of the key in the QMap, 0 if non existent
+int VersionTracker::findVersion(QString key)
 {
   if (versions->contains(key)) {
     return (*versions)[key].second;
@@ -86,6 +130,49 @@ void VersionTracker::updateVersion(QString key, int version)
   }
 }
 
+void HotRumor::checkAcks()
+{
+  // if we don't receive an ack at all, or if the node responded positively, we keep sending out messages
+  if ((ackmsg.contains(QString("Ack")) and ackmsg.contains(QString("Key")) and
+      ackmsg.contains(QString("Version")) and ackmsg[QString("Ack")] == 1 and
+      ackmsg[QString("Key")] == key and ackmsg[QString("Version")] == version) or
+      not ackmsg.contains(QString("Ack"))) {
+    emit sendRumor(msg);
+  } else {
+    if (rand() % kRumorProb == 0) {
+      emit eliminateRumor(key);
+    } else {
+      emit sendRumor(msg);
+    }
+  }
+
+  // wipe ackmsg
+  QVariantMap t;
+  ackmsg = t;
+}
+
+HotRumor::HotRumor(QVariantMap inmsg)
+{
+  kTimeout = 2000;
+  kRumorProb = 2;
+  key = inmsg[QString("Key")].toString();
+  version = inmsg[QString("Version")].toInt();
+  timer = new QTimer(this);
+  connect(timer, SIGNAL(timeout()), this, SLOT(checkAcks()));
+  timer->start(kTimeout);
+  
+  QVariantMap t;
+  ackmsg = t;
+  msg = inmsg;
+}
+
+HotRumor::~HotRumor()
+{
+  if (timer) {
+    delete(timer);
+  }
+}
+
 // writes the key/value pair to local storage
 void FrontDialog::put(QString dir_name, QString key, QString value)
 {
@@ -95,28 +182,83 @@ void FrontDialog::put(QString dir_name, QString key, QString value)
   fs.close();
 }
 
-// updates versioning and writes key/value pair
-void FrontDialog::writeKey(QString key, QString value, int version)
+bool FrontDialog::shouldUpdate(int current_version, int new_version)
 {
-  vt->versions->insert(key, qMakePair(value, version));
-  vt->updateVersion(key, version);
-  put(sock->dir_name, key, value);
+  if (current_version < new_version) {
+    return true;
+  } else if (current_version == new_version) {
+    return false; // NEED TIEBREAKER HERE IF VALUES DIFFER
+  } else {
+    return false;
+  }
 }
 
+// remove rumor with key if it exists
+void FrontDialog::eliminateRumorByKey(QString key)
+{
+  HotRumor *rumor;
+  for (int i = 0; i < hotRumors->size(); ++i) {
+    if (hotRumors->at(i)->key == key) {
+      rumor = hotRumors->at(i);
+      hotRumors->remove(i);
+      delete(rumor);
+    }
+  }
+}
+
+// attaches ack message to proper rumor
+void FrontDialog::attachAckMessage(QVariantMap msg)
+{
+  for (int i = 0; i < hotRumors->size(); ++i) {
+    HotRumor *rumor = hotRumors->at(i);
+    if (rumor->key == msg[QString("Key")].toString() and
+        rumor->version == msg[QString("Version")].toInt()) {
+      rumor->ackmsg = msg;
+    }
+  }
+}
+
+// updates versioning and writes key/value pair if necessary, returns an ack number
+int FrontDialog::processRumor(QVariantMap msg)
+{
+  QString key = msg[QString("Key")].toString();
+  QString value = msg[QString("Value")].toString();
+  int new_version = msg[QString("Version")].toInt();
+  if (shouldUpdate(vt->findVersion(key), new_version)) {
+    eliminateRumorByKey(key);
+    vt->versions->insert(key, qMakePair(value, new_version));
+    vt->updateVersion(key, new_version);
+    put(sock->dir_name, key, value);
+
+    msg.insert("Host", sock->address.toString());
+    msg.insert("Port", sock->boundPort);
+
+    HotRumor *rumor = new HotRumor(msg);
+    // connection to delete rumor if necessary
+    connect(rumor, SIGNAL(eliminateRumor(QString)), this, SLOT(eliminateRumorByKey(QString)));
+    // connection to send rumor
+    connect(rumor, SIGNAL(sendRumor(QVariantMap)), sock, SLOT(sendRumor(QVariantMap)));
+    hotRumors->append(rumor);
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+// maybe this should be in netsocket class?
 void FrontDialog::readPendingMessages()
 {
   while (sock->hasPendingDatagrams()) {
-    QByteArray *deserialized = new QByteArray();
-    int size = sock->pendingDatagramSize();
-    deserialized->resize(size);
-    sock->readDatagram(deserialized->data(), size);
-
-    QDataStream in(deserialized, QIODevice::OpenMode(QIODevice::ReadOnly));
-    QVariantMap msg;
-    in >> msg;
-
-    if (msg.contains(QString("Key")) and msg.contains(QString("Value")) and msg.contains(QString("Version"))) {
-      writeKey(msg[QString("Key")].toString(), msg[QString("Value")].toString(), msg[QString("Version")].toInt());
+    QVariantMap msg = sock->deserialize();
+    if (msg.contains(QString("Key")) and msg.contains(QString("Value")) and 
+        msg.contains(QString("Version")) and msg.contains(QString("Host")) and
+        msg.contains(QString("Port"))) {
+      int ack = processRumor(msg);
+      qDebug() << "received rumor version " << msg[QString("Version")].toInt() << "sending ack " << ack;
+      sock->sendAck(ack, msg);
+    } else if (msg.contains(QString("Ack")) and msg.contains(QString("Key")) and
+        msg.contains(QString("Version"))) {
+      attachAckMessage(msg);
     }
   }
 }
@@ -134,18 +276,15 @@ void FrontDialog::putRequest()
   QString value = valuefield->toPlainText();
   qDebug() << "Adding file : " << key;
 
-  // writes key
-  int version = vt->findMostRecentVersion(key) + 1;
-  writeKey(key, value, version);
-  
-  // sending messages
+  // creates message for processing
   QVariantMap msg;
   msg.insert(QString("Key"), key);
   msg.insert(QString("Value"), value);
-  msg.insert(QString("Version"), version);
-  msg.insert(QString("Source"), sock->address.toString());
+  msg.insert(QString("Version"), vt->findVersion(key) + 1);
+  msg.insert(QString("Host"), sock->address.toString());
+  msg.insert(QString("Port"), sock->boundPort);
 
-  emit startRumor(msg);
+  processRumor(msg);
 
   // Clear the inputs to get ready for the next input message.
   keyfield->clear();
@@ -157,6 +296,7 @@ FrontDialog::FrontDialog()
 {
 	setWindowTitle("DB");
   vt = new VersionTracker();
+  srand(time(0));
 
 	// Create a UDP network socket
 	sock = new NetSocket();
@@ -168,6 +308,8 @@ FrontDialog::FrontDialog()
   // directory to store key/values is just dir plus the port number, stored in directory db
   sock->dir_name = "db/dir" + QString::number(sock->boundPort);
   mkdir(sock->dir_name.toStdString().c_str(), S_IRWXU); // creates the directory
+
+  hotRumors = new QVector<HotRumor *>();
 
   // starts listening for messages
   connect(sock, SIGNAL(readyRead()),
