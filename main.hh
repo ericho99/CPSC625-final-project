@@ -21,6 +21,7 @@ class NetSocket : public QUdpSocket
     NetSocket();
     bool bind(); // Bind this socket to a Peerster-specific default port.
     void findNeighbors();
+    QByteArray* serialize(QVariantMap);
     QVariantMap deserialize();
     void sendAck(int ack, QVariantMap msg);
 
@@ -29,7 +30,7 @@ class NetSocket : public QUdpSocket
     QString dir_name;
 
   public slots:
-    void sendRumor(QVariantMap msg);
+    void sendRandomMessage(QVariantMap msg);
 
   private:
     int myPortMin, myPortMax;
@@ -54,7 +55,7 @@ class HotRumor : public QObject
 
   signals:
     void eliminateRumor(QString key);
-    void sendRumor(QVariantMap);
+    void sendRandomMessage(QVariantMap);
 
   private:
     int kTimeout, kRumorProb;
@@ -66,9 +67,8 @@ class VersionTracker
   public:
     VersionTracker();
     int findVersion(QString key); 
-    void updateVersion(QString key, int version);
 
-    QMap<QString, QPair<QString, int> > *versions; // map of key to <value, version>
+    QVariantMap *versions; // map of key to version
 };
 
 class FrontDialog : public QDialog
@@ -80,25 +80,28 @@ class FrontDialog : public QDialog
     void put(QString dir_name, QString key, QString value);
     bool shouldUpdate(int, int);
     int processRumor(QVariantMap);
-    void resendRumor(QVariantMap);
     void attachAckMessage(QVariantMap);
 
     NetSocket *sock;
     VersionTracker *vt;
     QVector<HotRumor *> *hotRumors;
+    QTimer *antiTimer;
 
   public slots:
     void putRequest();
     void readPendingMessages();
     void eliminateRumorByKey(QString key);
+    void sendAntiEntropy();
 
   signals:
+    void antiEntropy();
     void startRumor(QVariantMap msg);
 
   private:
     QLineEdit *keyfield;
     QTextEdit *valuefield;
     QPushButton *putbutton;
+    int kAntiEntropyTimeout;
 };
 
 #endif // PEERSTER_MAIN_HH

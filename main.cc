@@ -50,19 +50,25 @@ void NetSocket::findNeighbors()
   }
 }
 
-// sends the specified rumor to a random neighboring node
-void NetSocket::sendRumor(QVariantMap msg)
+QByteArray* NetSocket::serialize(QVariantMap msg)
 {
   QByteArray *serialized = new QByteArray();
   QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
   out << msg;
+  return serialized;
+}
+
+// sends the specified rumor to a random neighboring node
+void NetSocket::sendRandomMessage(QVariantMap msg)
+{
+  QByteArray *serialized = serialize(msg);
 
   QPair<QHostAddress, int> neighbor = neighbors->at(rand() % neighbors->size()); 
-  qDebug() << "Sending rumor to port " << neighbor.second;
+  qDebug() << "Sending message to port " << neighbor.second;
   if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
     qDebug() << "failed to send";
     sleep(1000);
-    sendRumor(msg);
+    sendRandomMessage(msg);
   }
 }
 
@@ -76,10 +82,7 @@ void NetSocket::sendAck(int ack, QVariantMap msg)
   ackmsg.insert(QString("Version"), msg[QString("Version")].toInt());
 
   // serialize
-  QByteArray *serialized = new QByteArray();
-  QDataStream out(serialized, QIODevice::OpenMode(QIODevice::ReadWrite));
-  out << ackmsg;
-
+  QByteArray *serialized = serialize(ackmsg);
   qDebug() << "Sending ack to port " << msg[QString("Port")].toInt();
 
   // write msg
@@ -109,24 +112,16 @@ QVariantMap NetSocket::deserialize()
 
 VersionTracker::VersionTracker()
 {
-  versions = new QMap<QString, QPair<QString, int> >();
+  versions = new QVariantMap();
 }
 
 // returns the most recent version of the key in the QMap, 0 if non existent
 int VersionTracker::findVersion(QString key)
 {
   if (versions->contains(key)) {
-    return (*versions)[key].second;
+    return (*versions)[key].toInt();
   } else {
     return 0;
-  }
-}
-
-// updates to a new version within the QMap
-void VersionTracker::updateVersion(QString key, int version)
-{
-  if (versions->contains(key)) {
-    versions->insert(key, qMakePair((*versions)[key].first, version));
   }
 }
 
@@ -137,12 +132,12 @@ void HotRumor::checkAcks()
       ackmsg.contains(QString("Version")) and ackmsg[QString("Ack")] == 1 and
       ackmsg[QString("Key")] == key and ackmsg[QString("Version")] == version) or
       not ackmsg.contains(QString("Ack"))) {
-    emit sendRumor(msg);
+    emit sendRandomMessage(msg);
   } else {
     if (rand() % kRumorProb == 0) {
       emit eliminateRumor(key);
     } else {
-      emit sendRumor(msg);
+      emit sendRandomMessage(msg);
     }
   }
 
@@ -226,8 +221,7 @@ int FrontDialog::processRumor(QVariantMap msg)
   int new_version = msg[QString("Version")].toInt();
   if (shouldUpdate(vt->findVersion(key), new_version)) {
     eliminateRumorByKey(key);
-    vt->versions->insert(key, qMakePair(value, new_version));
-    vt->updateVersion(key, new_version);
+    vt->versions->insert(key, new_version);
     put(sock->dir_name, key, value);
 
     msg.insert("Host", sock->address.toString());
@@ -237,7 +231,7 @@ int FrontDialog::processRumor(QVariantMap msg)
     // connection to delete rumor if necessary
     connect(rumor, SIGNAL(eliminateRumor(QString)), this, SLOT(eliminateRumorByKey(QString)));
     // connection to send rumor
-    connect(rumor, SIGNAL(sendRumor(QVariantMap)), sock, SLOT(sendRumor(QVariantMap)));
+    connect(rumor, SIGNAL(sendRandomMessage(QVariantMap)), sock, SLOT(sendRandomMessage(QVariantMap)));
     hotRumors->append(rumor);
     return 1;
   } else {
@@ -259,8 +253,22 @@ void FrontDialog::readPendingMessages()
     } else if (msg.contains(QString("Ack")) and msg.contains(QString("Key")) and
         msg.contains(QString("Version"))) {
       attachAckMessage(msg);
+    } else if (msg.contains(QString("State")) and msg.contains(QString("Host")) and
+        msg.contains(QString("Port"))) {
+      qDebug() << "received status message";
     }
   }
+}
+
+// sends anti entropy status
+void FrontDialog::sendAntiEntropy()
+{
+  QVariantMap msg;
+  msg.insert("State", *(vt->versions));
+  msg.insert(QString("Host"), sock->address.toString());
+  msg.insert(QString("Port"), sock->boundPort);
+
+  sock->sendRandomMessage(msg);
 }
 
 // processes a put request
@@ -315,7 +323,7 @@ FrontDialog::FrontDialog()
   connect(sock, SIGNAL(readyRead()),
           this, SLOT(readPendingMessages()));
   connect(this, SIGNAL(startRumor(QVariantMap)),
-          sock, SLOT(sendRumor(QVariantMap)));
+          sock, SLOT(sendRandomMessage(QVariantMap)));
 
   // adding front end fields
 	keyfield = new QLineEdit(this);
@@ -325,6 +333,12 @@ FrontDialog::FrontDialog()
 
   connect(putbutton, SIGNAL(clicked()),
           this, SLOT(putRequest()));
+
+  // adding antientropy timer
+  kAntiEntropyTimeout = 10000;
+  antiTimer = new QTimer(this);
+  connect(antiTimer, SIGNAL(timeout()), this, SLOT(sendAntiEntropy()));
+  antiTimer->start(kAntiEntropyTimeout);
 
 	// Lay out the widgets to appear in the main window.
 	QVBoxLayout *layout = new QVBoxLayout();
