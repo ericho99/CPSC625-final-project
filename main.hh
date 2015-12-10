@@ -24,6 +24,7 @@ class NetSocket : public QUdpSocket
     QByteArray* serialize(QVariantMap);
     QVariantMap deserialize();
     void sendAck(int ack, QVariantMap msg);
+    void sendResponseMessage(QVariantMap, QHostAddress, int);
 
     int boundPort, kRumorProb; // const kRumorProb?
     QHostAddress address;
@@ -77,10 +78,15 @@ class FrontDialog : public QDialog
 
   public:
     FrontDialog();
-    void put(QString dir_name, QString key, QString value);
-    bool shouldUpdate(int, int);
+    void put(QString key, QString value);
+    QString get(QString key);
     int processRumor(QVariantMap);
     void attachAckMessage(QVariantMap);
+    void processEntropy(QVariantMap);
+    void placeUpdates(QVariantMap);
+    QVariantMap createBaseMap();
+    QVariantMap attachValuesToUpdates(QVariantMap);
+    QVariantMap findRequiredUpdates(QVariantMap, QVariantMap);
 
     NetSocket *sock;
     VersionTracker *vt;

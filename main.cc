@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
+#include <iostream>
 #include <fstream>
 #include <string.h>
 
@@ -45,7 +46,8 @@ void NetSocket::findNeighbors()
   neighbors = new QVector<QPair<QHostAddress, int> >();
   for (int p = myPortMin; p <= myPortMax; p++) {
     if (boundPort != p) {
-      neighbors->append(qMakePair(address, p));
+      // running on zoo machines, so our neighbors are all on localhost
+      neighbors->append(qMakePair(QHostAddress(QHostAddress::LocalHost), p));
     }
   }
 }
@@ -58,18 +60,24 @@ QByteArray* NetSocket::serialize(QVariantMap msg)
   return serialized;
 }
 
+// writes datagram with message, host, and port
+void NetSocket::sendResponseMessage(QVariantMap msg, QHostAddress host, int port)
+{
+  QByteArray *serialized = serialize(msg);
+  if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), host, port) == -1) {
+    qDebug() << "failed to send";
+    sleep(1000);
+    sendResponseMessage(msg, host, port);
+  }
+}
+
 // sends the specified rumor to a random neighboring node
 void NetSocket::sendRandomMessage(QVariantMap msg)
 {
-  QByteArray *serialized = serialize(msg);
-
   QPair<QHostAddress, int> neighbor = neighbors->at(rand() % neighbors->size()); 
   qDebug() << "Sending message to port " << neighbor.second;
-  if (QUdpSocket::writeDatagram(serialized->data(), serialized->size(), neighbor.first, neighbor.second) == -1) {
-    qDebug() << "failed to send";
-    sleep(1000);
-    sendRandomMessage(msg);
-  }
+  
+  sendResponseMessage(msg, neighbor.first, neighbor.second); 
 }
 
 // sends acknowledgement of rumor
@@ -81,19 +89,10 @@ void NetSocket::sendAck(int ack, QVariantMap msg)
   ackmsg.insert(QString("Key"), msg[QString("Key")].toString());
   ackmsg.insert(QString("Version"), msg[QString("Version")].toInt());
 
-  // serialize
-  QByteArray *serialized = serialize(ackmsg);
   qDebug() << "Sending ack to port " << msg[QString("Port")].toInt();
-
-  // write msg
-  if (QUdpSocket::writeDatagram(
-      serialized->data(),
-      serialized->size(),
-      //QHostAddress(msg[QString("Host")].toString()),
-      QHostAddress(QHostAddress::LocalHost),
-      msg[QString("Port")].toInt()) == -1) {
-    qDebug() << "failed to send";
-  }
+  qDebug() << "host name is " << msg[QString("Host")].toString();
+  
+  sendResponseMessage(ackmsg, QHostAddress(msg[QString("Host")].toString()), msg[QString("Port")].toInt());
 }
 
 // deserialize a datagram into a QVariantMap msg
@@ -169,23 +168,26 @@ HotRumor::~HotRumor()
 }
 
 // writes the key/value pair to local storage
-void FrontDialog::put(QString dir_name, QString key, QString value)
+void FrontDialog::put(QString key, QString value)
 {
   std::fstream fs;
-  fs.open((dir_name + "/" + key).toStdString().c_str(), std::fstream::out);
+  fs.open((sock->dir_name + "/" + key).toStdString().c_str(), std::fstream::out);
   fs << value.toStdString();
   fs.close();
 }
 
-bool FrontDialog::shouldUpdate(int current_version, int new_version)
+// gets value from key
+QString FrontDialog::get(QString key)
 {
-  if (current_version < new_version) {
-    return true;
-  } else if (current_version == new_version) {
-    return false; // NEED TIEBREAKER HERE IF VALUES DIFFER
-  } else {
-    return false;
-  }
+  std::ifstream f((sock->dir_name + "/" + key).toStdString().c_str());
+  std::string str;
+  f.seekg(0, std::ios::end);   
+  str.reserve(f.tellg());
+  f.seekg(0, std::ios::beg);
+
+  str.assign((std::istreambuf_iterator<char>(f)),
+              std::istreambuf_iterator<char>());
+  return QString(str.c_str());
 }
 
 // remove rumor with key if it exists
@@ -219,10 +221,10 @@ int FrontDialog::processRumor(QVariantMap msg)
   QString key = msg[QString("Key")].toString();
   QString value = msg[QString("Value")].toString();
   int new_version = msg[QString("Version")].toInt();
-  if (shouldUpdate(vt->findVersion(key), new_version)) {
+  if (vt->findVersion(key) < new_version) {
     eliminateRumorByKey(key);
     vt->versions->insert(key, new_version);
-    put(sock->dir_name, key, value);
+    put(key, value);
 
     msg.insert("Host", sock->address.toString());
     msg.insert("Port", sock->boundPort);
@@ -236,6 +238,19 @@ int FrontDialog::processRumor(QVariantMap msg)
     return 1;
   } else {
     return 0;
+  }
+}
+
+// place updates into storage
+void FrontDialog::placeUpdates(QVariantMap updates)
+{
+  for (QVariantMap::const_iterator i = updates.begin(); i != updates.end(); ++i) {
+    if (i.value().toMap().contains(QString("Version")) and i.value().toMap().contains(QString("Value"))) {
+      if (vt->findVersion(i.key()) < i.value().toMap()[QString("Version")].toInt()) {
+        vt->versions->insert(i.key(), i.value().toMap()[QString("Version")].toInt());
+        put(i.key(), i.value().toMap()[QString("Value")].toString());
+      }
+    }
   }
 }
 
@@ -255,18 +270,87 @@ void FrontDialog::readPendingMessages()
       attachAckMessage(msg);
     } else if (msg.contains(QString("State")) and msg.contains(QString("Host")) and
         msg.contains(QString("Port"))) {
-      qDebug() << "received status message";
+      processEntropy(msg);
+    } else if (msg.contains(QString("Updates"))) {
+      qDebug() << "third one now";
+      placeUpdates(msg[QString("Updates")].toMap());
     }
+  }
+}
+
+// checks new state for required updates, returns required update list
+QVariantMap FrontDialog::findRequiredUpdates(QVariantMap newstate, QVariantMap oldstate)
+{
+  QVariantMap updates;
+  for (QVariantMap::const_iterator i = newstate.begin(); i != newstate.end(); ++i) {
+    if (oldstate.contains(i.key())) {
+      if (oldstate[i.key()].toInt() < i.value().toInt()) {
+        updates.insert(i.key(), i.value());
+      }
+    } else {
+      // new key here
+      updates.insert(i.key(), i.value());
+    }
+  }
+  return updates;
+}
+
+// seeks values from database and attaches them in a variantmap
+QVariantMap FrontDialog::attachValuesToUpdates(QVariantMap updates)
+{
+  QVariantMap updatesWithValues;
+  for (QVariantMap::const_iterator i = updates.begin(); i != updates.end(); ++i) {
+    QVariantMap m;
+    m.insert(QString("Version"), i.value().toInt());
+    m.insert(QString("Value"), get(i.key()));
+    updatesWithValues.insert(i.key(), m);
+  }
+  return updatesWithValues; 
+}
+
+// creates variantmap with host and port
+QVariantMap FrontDialog::createBaseMap()
+{
+  QVariantMap m;
+  m.insert(QString("Host"), sock->address.toString());
+  m.insert(QString("Port"), sock->boundPort);
+  return m;
+}
+
+// processes an anti-entropy message
+void FrontDialog::processEntropy(QVariantMap msg)
+{
+  if (msg.contains(QString("UpdatesFromOrigin")) and msg.contains(QString("UpdatesToOrigin"))) {
+    qDebug() << "getting 2nd update";
+    QVariantMap updatesWithValues = attachValuesToUpdates(msg[QString("UpdatesFromOrigin")].toMap());
+    QVariantMap updatemsg;
+    updatemsg.insert("Updates", updatesWithValues);
+    sock->sendResponseMessage(updatemsg, QHostAddress(msg[QString("Host")].toString()), msg[QString("Port")].toInt());
+
+    placeUpdates(msg[QString("UpdatesToOrigin")].toMap());
+  } else {
+    qDebug() << "sending first response";
+    QVariantMap newstate = msg[QString("State")].toMap();
+    // contains keys that this node needs
+    QVariantMap updatesFromOrigin = findRequiredUpdates(newstate, *(vt->versions));
+
+    // obtaining <version, value> pairs that the messaging node requires
+    QVariantMap updatesToOrigin = attachValuesToUpdates(findRequiredUpdates(*(vt->versions), newstate));
+
+    QVariantMap ackmsg = createBaseMap();
+    ackmsg.insert("State", *(vt->versions));
+    ackmsg.insert(QString("UpdatesFromOrigin"), updatesFromOrigin);
+    ackmsg.insert(QString("UpdatesToOrigin"), updatesToOrigin);
+    
+    sock->sendResponseMessage(ackmsg, QHostAddress(msg[QString("Host")].toString()), msg[QString("Port")].toInt());
   }
 }
 
 // sends anti entropy status
 void FrontDialog::sendAntiEntropy()
 {
-  QVariantMap msg;
+  QVariantMap msg = createBaseMap();
   msg.insert("State", *(vt->versions));
-  msg.insert(QString("Host"), sock->address.toString());
-  msg.insert(QString("Port"), sock->boundPort);
 
   sock->sendRandomMessage(msg);
 }
