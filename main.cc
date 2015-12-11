@@ -90,7 +90,6 @@ void NetSocket::sendAck(int ack, QVariantMap msg)
   ackmsg.insert(QString("Version"), msg[QString("Version")].toInt());
 
   qDebug() << "Sending ack to port " << msg[QString("Port")].toInt();
-  qDebug() << "host name is " << msg[QString("Host")].toString();
   
   sendResponseMessage(ackmsg, QHostAddress(msg[QString("Host")].toString()), msg[QString("Port")].toInt());
 }
@@ -147,7 +146,7 @@ void HotRumor::checkAcks()
 
 HotRumor::HotRumor(QVariantMap inmsg)
 {
-  kTimeout = 2000;
+  kTimeout = 20000000;
   kRumorProb = 2;
   key = inmsg[QString("Key")].toString();
   version = inmsg[QString("Version")].toInt();
@@ -245,12 +244,11 @@ int FrontDialog::processRumor(QVariantMap msg)
 void FrontDialog::placeUpdates(QVariantMap updates)
 {
   for (QVariantMap::const_iterator i = updates.begin(); i != updates.end(); ++i) {
-    if (i.value().toMap().contains(QString("Version")) and i.value().toMap().contains(QString("Value"))) {
-      if (vt->findVersion(i.key()) < i.value().toMap()[QString("Version")].toInt()) {
-        vt->versions->insert(i.key(), i.value().toMap()[QString("Version")].toInt());
-        put(i.key(), i.value().toMap()[QString("Value")].toString());
-      }
-    }
+    QVariantMap msg;
+    msg.insert(QString("Key"), i.key());
+    msg.insert(QString("Value"), i.value().toMap()[QString("Value")].toString());
+    msg.insert(QString("Version"), i.value().toMap()[QString("Version")].toInt());
+    processRumor(msg);
   }
 }
 
@@ -272,7 +270,6 @@ void FrontDialog::readPendingMessages()
         msg.contains(QString("Port"))) {
       processEntropy(msg);
     } else if (msg.contains(QString("Updates"))) {
-      qDebug() << "third one now";
       placeUpdates(msg[QString("Updates")].toMap());
     }
   }
@@ -321,7 +318,6 @@ QVariantMap FrontDialog::createBaseMap()
 void FrontDialog::processEntropy(QVariantMap msg)
 {
   if (msg.contains(QString("UpdatesFromOrigin")) and msg.contains(QString("UpdatesToOrigin"))) {
-    qDebug() << "getting 2nd update";
     QVariantMap updatesWithValues = attachValuesToUpdates(msg[QString("UpdatesFromOrigin")].toMap());
     QVariantMap updatemsg;
     updatemsg.insert("Updates", updatesWithValues);
@@ -329,7 +325,6 @@ void FrontDialog::processEntropy(QVariantMap msg)
 
     placeUpdates(msg[QString("UpdatesToOrigin")].toMap());
   } else {
-    qDebug() << "sending first response";
     QVariantMap newstate = msg[QString("State")].toMap();
     // contains keys that this node needs
     QVariantMap updatesFromOrigin = findRequiredUpdates(newstate, *(vt->versions));
@@ -369,12 +364,10 @@ void FrontDialog::putRequest()
   qDebug() << "Adding file : " << key;
 
   // creates message for processing
-  QVariantMap msg;
+  QVariantMap msg = createBaseMap();
   msg.insert(QString("Key"), key);
   msg.insert(QString("Value"), value);
   msg.insert(QString("Version"), vt->findVersion(key) + 1);
-  msg.insert(QString("Host"), sock->address.toString());
-  msg.insert(QString("Port"), sock->boundPort);
 
   processRumor(msg);
 
@@ -419,7 +412,7 @@ FrontDialog::FrontDialog()
           this, SLOT(putRequest()));
 
   // adding antientropy timer
-  kAntiEntropyTimeout = 10000;
+  kAntiEntropyTimeout = 100000;
   antiTimer = new QTimer(this);
   connect(antiTimer, SIGNAL(timeout()), this, SLOT(sendAntiEntropy()));
   antiTimer->start(kAntiEntropyTimeout);
