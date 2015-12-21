@@ -95,6 +95,8 @@ class FrontDialog : public QDialog
 
   public slots:
     void putRequest();
+    void getRequest();
+    void deleteRequest();
     void readPendingMessages();
     void eliminateRumorByKey(QString key);
     void sendAntiEntropy();
@@ -104,9 +106,16 @@ class FrontDialog : public QDialog
     void startRumor(QVariantMap msg);
 
   private:
-    QLineEdit *keyfield;
-    QTextEdit *valuefield;
-    QPushButton *putbutton;
+    void clearAllInputs();
+
+    QLineEdit *putKeyField;
+    QLineEdit *putValueField;
+    QLineEdit *getKeyField;
+    QLineEdit *deleteKeyField;
+
+    QPushButton *putButton;
+    QPushButton *getButton;
+    QPushButton *deleteButton;
     int kAntiEntropyTimeout;
 };
 

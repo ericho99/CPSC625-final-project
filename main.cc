@@ -146,7 +146,7 @@ void HotRumor::checkAcks()
 
 HotRumor::HotRumor(QVariantMap inmsg)
 {
-  kTimeout = 20000000;
+  kTimeout = 2000;
   kRumorProb = 2;
   key = inmsg[QString("Key")].toString();
   version = inmsg[QString("Version")].toInt();
@@ -350,17 +350,26 @@ void FrontDialog::sendAntiEntropy()
   sock->sendRandomMessage(msg);
 }
 
+// clears all input lines in the front end dialog
+void FrontDialog::clearAllInputs()
+{
+  putKeyField->clear();
+  putValueField->clear();
+  getKeyField->clear();
+  deleteKeyField->clear();
+}
+
 // processes a put request
 void FrontDialog::putRequest()
 {
   // invalid put request with empty key
-  if (keyfield->text().isEmpty()) {
+  if (putKeyField->text().isEmpty()) {
     return;
   }
 
   // grabs input key/value
-	QString key = keyfield->text();
-  QString value = valuefield->toPlainText();
+	QString key = putKeyField->text();
+  QString value = putValueField->text();
   qDebug() << "Adding file : " << key;
 
   // creates message for processing
@@ -372,8 +381,35 @@ void FrontDialog::putRequest()
   processRumor(msg);
 
   // Clear the inputs to get ready for the next input message.
-  keyfield->clear();
-  valuefield->clear();
+  clearAllInputs();
+}
+
+// processes a get request
+void FrontDialog::getRequest()
+{
+  // invalid get request with empty key
+  if (getKeyField->text().isEmpty()) {
+    return;
+  }
+  
+  QString key = getKeyField->text();
+  qDebug() << "Getting file : " << key;
+
+  clearAllInputs();
+}
+
+// processes a delete request
+void FrontDialog::deleteRequest()
+{
+  // invalid delete request with empty key
+  if (deleteKeyField->text().isEmpty()) {
+    return;
+  }
+  
+  QString key = deleteKeyField->text();
+  qDebug() << "Deleting file : " << key;
+
+  clearAllInputs();
 }
 
 // instantiates the application
@@ -402,26 +438,44 @@ FrontDialog::FrontDialog()
   connect(this, SIGNAL(startRumor(QVariantMap)),
           sock, SLOT(sendRandomMessage(QVariantMap)));
 
-  // adding front end fields
-	keyfield = new QLineEdit(this);
-  keyfield->setFocus();
-	valuefield = new QTextEdit(this);
-  putbutton = new QPushButton("Put", this); // submit button
+  // adding put fields
+	putKeyField = new QLineEdit(this);
+  putKeyField->setFocus();
+	putValueField = new QLineEdit(this);
+  putButton = new QPushButton("Put (key/value)", this); // submit button
 
-  connect(putbutton, SIGNAL(clicked()),
+  // adding get fields
+  getKeyField = new QLineEdit(this);
+  getButton = new QPushButton("Get (key)", this);
+  
+  // adding delete fields
+  deleteKeyField = new QLineEdit(this);
+  deleteButton = new QPushButton("Delete (key)", this);
+
+  connect(putButton, SIGNAL(clicked()),
           this, SLOT(putRequest()));
+  connect(getButton, SIGNAL(clicked()),
+          this, SLOT(getRequest()));
+  connect(deleteButton, SIGNAL(clicked()),
+          this, SLOT(deleteRequest()));
+
 
   // adding antientropy timer
-  kAntiEntropyTimeout = 100000;
+  kAntiEntropyTimeout = 10000;
   antiTimer = new QTimer(this);
   connect(antiTimer, SIGNAL(timeout()), this, SLOT(sendAntiEntropy()));
   antiTimer->start(kAntiEntropyTimeout);
 
 	// Lay out the widgets to appear in the main window.
 	QVBoxLayout *layout = new QVBoxLayout();
-	layout->addWidget(keyfield);
-	layout->addWidget(valuefield);
-  layout->addWidget(putbutton);
+	layout->addWidget(putKeyField);
+	layout->addWidget(putValueField);
+  layout->addWidget(putButton);
+  layout->addWidget(getKeyField);
+  layout->addWidget(getButton);
+  layout->addWidget(deleteKeyField);
+  layout->addWidget(deleteButton);
+
 	setLayout(layout);
 }
 
