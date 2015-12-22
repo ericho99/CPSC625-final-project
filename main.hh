@@ -7,64 +7,14 @@
 #include <QTextEdit>
 #include <QLineEdit>
 #include <QKeyEvent>
-#include <QUdpSocket>
 #include <QMap>
 #include <QVariantMap>
 #include <QPushButton>
 #include <QTimer>
 
+#include "netsocket.hh"
+#include "hotrumor.hh"
 #include "quorum.hh"
-
-class NetSocket : public QUdpSocket
-{
-  Q_OBJECT
-
-  public:
-    NetSocket();
-    bool bind(); // Bind this socket to a Peerster-specific default port.
-    void findNeighbors();
-    QByteArray* serialize(QVariantMap);
-    QVariantMap deserialize();
-    void sendAck(int ack, QVariantMap msg);
-    void sendResponseMessage(QVariantMap, QHostAddress, int);
-
-    int boundPort, kRumorProb; // const kRumorProb?
-    QHostAddress address;
-    QString dir_name;
-
-    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
-
-  public slots:
-    void sendRandomMessage(QVariantMap msg);
-
-  private:
-    int myPortMin, myPortMax;
-};
-
-class HotRumor : public QObject
-{
-  Q_OBJECT
-
-  public:
-    HotRumor(QVariantMap);
-    ~HotRumor();
-    QTimer *timer;
-
-    QString key;
-    int version;
-    QVariantMap ackmsg;
-
-  public slots:
-    void checkAcks();
-
-  signals:
-    void eliminateRumor(QString key);
-    void sendRandomMessage(QVariantMap);
-
-  private:
-    int kTimeout, kRumorProb;
-    QVariantMap msg;
-};
 
 class VersionTracker
 {

@@ -9,5 +9,5 @@ INCLUDEPATH += .
 QT += network
 
 # Input
-HEADERS += main.hh quorum.hh
-SOURCES += main.cc quorum.cc
+HEADERS += main.hh netsocket.hh hotrumor.hh quorum.hh
+SOURCES += main.cc netsocket.cc hotrumor.cc quorum.cc
