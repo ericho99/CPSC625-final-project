@@ -1,5 +1,5 @@
-#ifndef PEERSTER_MAIN_HH
-#define PEERSTER_MAIN_HH
+#ifndef EPIDEMIC_MAIN_HH
+#define EPIDEMIC_MAIN_HH
 
 // inspired by Bryan Ford's CPSC 426 Assignment
 
@@ -12,6 +12,8 @@
 #include <QVariantMap>
 #include <QPushButton>
 #include <QTimer>
+
+#include "quorum.hh"
 
 class NetSocket : public QUdpSocket
 {
@@ -92,6 +94,7 @@ class FrontDialog : public QDialog
     VersionTracker *vt;
     QVector<HotRumor *> *hotRumors;
     QTimer *antiTimer;
+    Quorum *quorum;
 
   public slots:
     void putRequest();
@@ -100,6 +103,7 @@ class FrontDialog : public QDialog
     void readPendingMessages();
     void eliminateRumorByKey(QString key);
     void sendAntiEntropy();
+    void quorumDecision(QVariantMap);
 
   signals:
     void antiEntropy();
@@ -111,6 +115,7 @@ class FrontDialog : public QDialog
     QLineEdit *putKeyField;
     QLineEdit *putValueField;
     QLineEdit *getKeyField;
+    QLineEdit *getValueField;
     QLineEdit *deleteKeyField;
 
     QPushButton *putButton;
@@ -119,4 +124,4 @@ class FrontDialog : public QDialog
     int kAntiEntropyTimeout;
 };
 
-#endif // PEERSTER_MAIN_HH
+#endif

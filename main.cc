@@ -357,6 +357,7 @@ void FrontDialog::clearAllInputs()
   putValueField->clear();
   getKeyField->clear();
   deleteKeyField->clear();
+  getValueField->setPlaceholderText("will contain value of get request");
 }
 
 // processes a put request
@@ -384,6 +385,16 @@ void FrontDialog::putRequest()
   clearAllInputs();
 }
 
+// quorum over, decision made 
+void FrontDialog::quorumDecision(QVariantMap msg)
+{
+  getValueField->setPlaceholderText("this is the value");
+
+  if (quorum) {
+    delete(quorum);
+  }
+}
+
 // processes a get request
 void FrontDialog::getRequest()
 {
@@ -395,7 +406,13 @@ void FrontDialog::getRequest()
   QString key = getKeyField->text();
   qDebug() << "Getting file : " << key;
 
-  clearAllInputs();
+  getValueField->setPlaceholderText("please wait...");
+  putKeyField->clear();
+  putValueField->clear();
+  deleteKeyField->clear();
+
+  quorum = new Quorum();
+  connect(quorum, SIGNAL(quorumDecision(QVariantMap)), this, SLOT(quorumDecision(QVariantMap)));
 }
 
 // processes a delete request
@@ -446,6 +463,9 @@ FrontDialog::FrontDialog()
 
   // adding get fields
   getKeyField = new QLineEdit(this);
+  getValueField = new QLineEdit(this);
+  getValueField->setPlaceholderText("will contain value of get request");
+  getValueField->setReadOnly(true);
   getButton = new QPushButton("Get (key)", this);
   
   // adding delete fields
@@ -459,9 +479,8 @@ FrontDialog::FrontDialog()
   connect(deleteButton, SIGNAL(clicked()),
           this, SLOT(deleteRequest()));
 
-
   // adding antientropy timer
-  kAntiEntropyTimeout = 10000;
+  kAntiEntropyTimeout = 15000;
   antiTimer = new QTimer(this);
   connect(antiTimer, SIGNAL(timeout()), this, SLOT(sendAntiEntropy()));
   antiTimer->start(kAntiEntropyTimeout);
@@ -472,6 +491,7 @@ FrontDialog::FrontDialog()
 	layout->addWidget(putValueField);
   layout->addWidget(putButton);
   layout->addWidget(getKeyField);
+  layout->addWidget(getValueField);
   layout->addWidget(getButton);
   layout->addWidget(deleteKeyField);
   layout->addWidget(deleteButton);
