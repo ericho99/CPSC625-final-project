@@ -32,12 +32,13 @@ class NetSocket : public QUdpSocket
     QHostAddress address;
     QString dir_name;
 
+    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
+
   public slots:
     void sendRandomMessage(QVariantMap msg);
 
   private:
     int myPortMin, myPortMax;
-    QVector<QPair<QHostAddress, int> > *neighbors; // vector of <address, port> pairs
 };
 
 class HotRumor : public QObject
@@ -86,6 +87,8 @@ class FrontDialog : public QDialog
     void attachAckMessage(QVariantMap);
     void processEntropy(QVariantMap);
     void placeUpdates(QVariantMap);
+    void gatherQuorum(QString);
+    void sendQuorumResponse(QVariantMap);
     QVariantMap createBaseMap();
     QVariantMap attachValuesToUpdates(QVariantMap);
     QVariantMap findRequiredUpdates(QVariantMap, QVariantMap);

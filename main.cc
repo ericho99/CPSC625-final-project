@@ -271,6 +271,9 @@ void FrontDialog::readPendingMessages()
       processEntropy(msg);
     } else if (msg.contains(QString("Updates"))) {
       placeUpdates(msg[QString("Updates")].toMap());
+    } else if (msg.contains(QString("QuorumCall")) and msg.contains(QString("Key")) and 
+        msg.contains(QString("Version"))) {
+      sendQuorumResponse(msg);
     }
   }
 }
@@ -385,6 +388,23 @@ void FrontDialog::putRequest()
   clearAllInputs();
 }
 
+// sending response to quorum call
+void FrontDialog::sendQuorumResponse(QVariantMap msg)
+{
+  QString key = msg[QString("Key")].toString();
+  int version = msg[QString("Version")].toInt();
+
+  // only send the value back if the version is as fresh or fresher 
+  // than the one the requester has
+  if (version <= vt->findVersion(key)) {
+    QVariantMap ackmsg = createBaseMap();
+    ackmsg.insert(QString("Key"), key);
+    ackmsg.insert(QString("Value"), get(key));
+    ackmsg.insert(QString("Version"), vt->findVersion(key));
+    ackmsg.insert(QString("QuorumAck"), QString("QuorumAck"));
+  }
+}
+
 // quorum over, decision made 
 void FrontDialog::quorumDecision(QVariantMap msg)
 {
@@ -392,6 +412,20 @@ void FrontDialog::quorumDecision(QVariantMap msg)
 
   if (quorum) {
     delete(quorum);
+  }
+}
+
+// sends a request to all nodes for a key/value
+void FrontDialog::gatherQuorum(QString key)
+{
+  QVariantMap msg = createBaseMap();
+  msg.insert(QString("Key"), key);
+  msg.insert(QString("Version"), vt->findVersion(key));
+  msg.insert(QString("QuorumCall"), QString("QuorumCall"));
+
+  for (int i = 0; i < sock->neighbors->size(); ++i) {
+    QPair<QHostAddress, int> neighbor = sock->neighbors->at(i);
+    sock->sendResponseMessage(msg, neighbor.first, neighbor.second); 
   }
 }
 
@@ -412,6 +446,7 @@ void FrontDialog::getRequest()
   deleteKeyField->clear();
 
   quorum = new Quorum();
+  gatherQuorum(key);
   connect(quorum, SIGNAL(quorumDecision(QVariantMap)), this, SLOT(quorumDecision(QVariantMap)));
 }
 
