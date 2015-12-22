@@ -38,6 +38,7 @@ class FrontDialog : public QDialog
     void processEntropy(QVariantMap);
     void placeUpdates(QVariantMap);
     void gatherQuorum(QString);
+    void processQuorumResponse(QVariantMap msg);
     void sendQuorumResponse(QVariantMap);
     QVariantMap createBaseMap();
     QVariantMap attachValuesToUpdates(QVariantMap);
@@ -56,7 +57,7 @@ class FrontDialog : public QDialog
     void readPendingMessages();
     void eliminateRumorByKey(QString key);
     void sendAntiEntropy();
-    void quorumDecision(QVariantMap);
+    void quorumDecision(QString);
 
   signals:
     void antiEntropy();

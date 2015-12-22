@@ -3,21 +3,26 @@
 
 #include <QVariantMap>
 #include <QTimer>
+#include <QVector>
 
 class Quorum : public QObject
 {
   Q_OBJECT
 
   public:
-    Quorum();
+    Quorum(QString, QString, int);
     ~Quorum();
+    void processQuorumResponse(QVariantMap);
+
     QTimer *timer;
+    QString key;
+    QVector<QPair<QString, int> > *responses;
 
   public slots:
     void decideQuorum();
 
   signals:
-    void quorumDecision(QVariantMap);
+    void quorumDecision(QString);
 
   private:
     int kTimeout;

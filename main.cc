@@ -133,6 +133,8 @@ void FrontDialog::readPendingMessages()
     } else if (msg.contains(QString("QuorumCall")) and msg.contains(QString("Key")) and 
         msg.contains(QString("Version"))) {
       sendQuorumResponse(msg);
+    } else if (msg.contains(QString("QuorumAck"))) {
+      processQuorumResponse(msg);
     }
   }
 }
@@ -247,6 +249,14 @@ void FrontDialog::putRequest()
   clearAllInputs();
 }
 
+// processes a quorum response msg
+void FrontDialog::processQuorumResponse(QVariantMap msg)
+{
+  if (msg[QString("Key")] == quorum->key) {
+    quorum->processQuorumResponse(msg); 
+  }
+}
+
 // sending response to quorum call
 void FrontDialog::sendQuorumResponse(QVariantMap msg)
 {
@@ -261,13 +271,15 @@ void FrontDialog::sendQuorumResponse(QVariantMap msg)
     ackmsg.insert(QString("Value"), get(key));
     ackmsg.insert(QString("Version"), vt->findVersion(key));
     ackmsg.insert(QString("QuorumAck"), QString("QuorumAck"));
+
+    sock->sendResponseMessage(ackmsg, QHostAddress(msg[QString("Host")].toString()), msg[QString("Port")].toInt());
   }
 }
 
 // quorum over, decision made 
-void FrontDialog::quorumDecision(QVariantMap msg)
+void FrontDialog::quorumDecision(QString value)
 {
-  getValueField->setPlaceholderText("this is the value");
+  getValueField->setPlaceholderText(value);
 
   if (quorum) {
     delete(quorum);
@@ -304,9 +316,9 @@ void FrontDialog::getRequest()
   putValueField->clear();
   deleteKeyField->clear();
 
-  quorum = new Quorum();
+  quorum = new Quorum(key, get(key), vt->findVersion(key));
   gatherQuorum(key);
-  connect(quorum, SIGNAL(quorumDecision(QVariantMap)), this, SLOT(quorumDecision(QVariantMap)));
+  connect(quorum, SIGNAL(quorumDecision(QString)), this, SLOT(quorumDecision(QString)));
 }
 
 // processes a delete request
